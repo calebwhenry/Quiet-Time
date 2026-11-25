@@ -48,6 +48,7 @@ function emit(s: SyncState, message = "") {
 
 export async function initStore() {
   for (const k of await idb.getAllKeys("dirty")) dirty.add(String(k));
+  await healConflicts();
   if (dirty.size) emit("pending");
   window.addEventListener("online", () => flushSoon(200));
   window.addEventListener("offline", () => emit("offline"));
@@ -72,12 +73,27 @@ export async function getTx(ids: number[]): Promise<Map<number, TxRec>> {
   return new Map(recs.map((r) => [r.verse_id, r]));
 }
 
-export async function saveTx(rec: TxRec) {
-  rec.updated_local = Date.now();
-  await idb.put("tx", rec);
-  await markDirty(`tx:${rec.verse_id}`);
+/** Save typed text locally. Revision and conflict state are owned by the sync layer, never the editor. */
+export async function saveTx(verse_id: number, typed: string, status: TxStatus) {
+  await idb.update<TxRec>("tx", verse_id, (cur) => ({ ...(cur ?? { verse_id, revision: 0 }), verse_id, typed, status, updated_local: Date.now() }));
+  await markDirty(`tx:${verse_id}`);
   emit("pending");
   flushSoon();
+}
+
+const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+/** A "conflict" where the cloud copy is just an earlier draft of what this device has is not a real conflict. */
+export const isStaleDraft = (cloud: string, local: string) => squash(local).startsWith(squash(cloud));
+
+/** Auto-resolve conflicts left over from older versions of the app when the cloud copy is a stale draft. */
+async function healConflicts() {
+  for (const k of [...dirty].filter((k) => k.startsWith("tx:"))) {
+    await idb.update<TxRec>("tx", Number(k.slice(3)), (cur) => {
+      if (!cur?.conflict || !isStaleDraft(cur.conflict.typed, cur.typed)) return undefined;
+      const { conflict, ...rest } = cur;
+      return { ...rest, revision: Math.max(cur.revision, conflict.revision) };
+    });
+  }
 }
 
 /** Pull server rows for a verse range and merge without losing local edits. */
@@ -96,9 +112,10 @@ export async function pullTx(s: number, e: number): Promise<number[]> {
       writes.push({ verse_id: row.verse_id, typed: row.typed, status: row.status, revision: row.revision });
       changed.push(row.verse_id);
     } else if (isDirty && row.revision > l.revision && row.typed !== l.typed) {
-      l.conflict = { typed: row.typed, status: row.status, revision: row.revision };
-      writes.push(l);
-      changed.push(row.verse_id);
+      if (isStaleDraft(row.typed, l.typed)) writes.push({ ...l, revision: row.revision });
+      else { writes.push({ ...l, conflict: { typed: row.typed, status: row.status, revision: row.revision } }); changed.push(row.verse_id); }
+    } else if (isDirty && row.revision > l.revision) {
+      writes.push({ ...l, revision: row.revision });
     }
   }
   await idb.putMany("tx", writes);
@@ -106,19 +123,15 @@ export async function pullTx(s: number, e: number): Promise<number[]> {
 }
 
 export async function resolveConflict(verse_id: number, keep: "mine" | "cloud") {
-  const r = await idb.get<TxRec>("tx", verse_id);
-  if (!r?.conflict) return;
-  if (keep === "cloud") {
-    const c = r.conflict;
-    await idb.put("tx", { verse_id, typed: c.typed, status: c.status, revision: c.revision });
-    await clearDirty(`tx:${verse_id}`);
-  } else {
-    r.revision = r.conflict.revision;
-    delete r.conflict;
-    await idb.put("tx", r);
-    await markDirty(`tx:${verse_id}`);
-    flushSoon(100);
-  }
+  const r = await idb.update<TxRec>("tx", verse_id, (cur) => {
+    if (!cur?.conflict) return undefined;
+    const c = cur.conflict;
+    return keep === "cloud" ? { verse_id, typed: c.typed, status: c.status, revision: c.revision }
+      : (({ conflict, ...rest }) => ({ ...rest, revision: c.revision }))(cur);
+  });
+  if (!r) return;
+  if (keep === "cloud") await clearDirty(`tx:${verse_id}`);
+  else { await markDirty(`tx:${verse_id}`); flushSoon(100); }
 }
 
 // ---------- Notes & sermons ----------
@@ -201,21 +214,24 @@ export async function flush(): Promise<void> {
         const items = recs.map((r) => ({ verse_id: r.verse_id, typed: r.typed, status: r.status, base_revision: r.revision }));
         const { data, error } = await sb.rpc("save_transcriptions", { p_items: items });
         if (error) throw error;
+        let retry = false;
         for (const res of data as any[]) {
           const sent = recs.find((r) => r.verse_id === res.verse_id)!;
-          const cur = await idb.get<TxRec>("tx", res.verse_id);
-          if (!cur) continue;
           if (res.ok) {
-            cur.revision = res.revision;
-            await idb.put("tx", cur);
+            const cur = await idb.update<TxRec>("tx", res.verse_id, (cur) => cur && { ...cur, revision: res.revision });
             // Only clear if nothing changed locally while the request was in flight.
-            if (cur.typed === sent.typed && cur.status === sent.status) await clearDirty(`tx:${res.verse_id}`);
+            if (cur && cur.typed === sent.typed && cur.status === sent.status) await clearDirty(`tx:${res.verse_id}`);
           } else {
-            cur.conflict = res.conflict;
-            await idb.put("tx", cur);
-            window.dispatchEvent(new CustomEvent("qt-conflict", { detail: res.verse_id }));
+            let stale = false;
+            await idb.update<TxRec>("tx", res.verse_id, (cur) => {
+              if (!cur) return undefined;
+              if (isStaleDraft(res.conflict.typed, cur.typed)) { stale = retry = true; return { ...cur, revision: res.conflict.revision }; }
+              return { ...cur, conflict: res.conflict };
+            });
+            if (!stale) window.dispatchEvent(new CustomEvent("qt-conflict", { detail: res.verse_id }));
           }
         }
+        if (retry) flushSoon(200);
       }
     }
     for (const k of keys.filter((k) => k.startsWith("doc:")).slice(0, 50)) {

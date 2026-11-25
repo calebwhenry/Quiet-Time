@@ -4,6 +4,7 @@ import { getTx, saveTx, pullTx, getVerses, setProgress, resolveConflict, type Pl
 import { h, esc, syncBadge, themeToggle, fmtDate, addDays } from "./ui";
 import { notesPanel } from "./notes";
 import { wordmark } from "./hero";
+import { ping } from "./activity";
 
 interface VerseCtl {
   id: number;
@@ -232,8 +233,9 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
     if (c.rec.conflict) showConflict(c);
     const changed = typed !== c.rec.typed || status !== c.rec.status;
     if (changed) {
+      const had = c.rec.typed || c.rec.revision > 0;
       c.rec.typed = typed; c.rec.status = status;
-      if (persist || c.rec.revision > 0 || typed) saveTx({ ...c.rec, conflict: c.rec.conflict });
+      if (persist || had || typed) saveTx(c.id, typed, status);
     }
     return !wasComplete && status === "complete";
   }
@@ -254,6 +256,7 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
   }
 
   function onInput(c: VerseCtl) {
+    ping("typing");
     autosize(c.ta);
     const justCompleted = evaluate(c, true);
     updateProgress();
@@ -325,10 +328,9 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
   function showConflict(c: VerseCtl) {
     const cf = c.rec.conflict!;
     c.hint.replaceChildren(h("div", { class: "conflict" },
-      h("strong", {}, "This verse was edited on another device. "),
-      h("div", { class: "muted" }, "Cloud version: ", h("q", {}, cf.typed)),
-      h("button", { class: "small", onclick: async () => { await resolveConflict(c.id, "mine"); c.rec.revision = cf.revision; delete c.rec.conflict; evaluate(c, false); } }, "Keep this device’s"),
-      h("button", { class: "small", onclick: async () => { await resolveConflict(c.id, "cloud"); c.rec = { verse_id: c.id, typed: cf.typed, status: cf.status, revision: cf.revision }; c.ta.value = cf.typed; evaluate(c, false); autosize(c.ta); } }, "Use cloud version")));
+      h("span", {}, "Another device saved a different version: ", h("q", {}, cf.typed)),
+      h("button", { class: "small", onclick: async () => { await resolveConflict(c.id, "mine"); c.rec.revision = cf.revision; delete c.rec.conflict; evaluate(c, false); } }, "Keep this one"),
+      h("button", { class: "small", onclick: async () => { await resolveConflict(c.id, "cloud"); c.rec = { verse_id: c.id, typed: cf.typed, status: cf.status, revision: cf.revision }; c.ta.value = cf.typed; evaluate(c, false); autosize(c.ta); } }, "Use the other")));
   }
 
   const keyHandler = (e: KeyboardEvent) => {

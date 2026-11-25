@@ -53,6 +53,17 @@ export async function putMany(store: string, values: unknown[]): Promise<void> {
   for (const v of values) os.put(v);
   await new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
 }
+/** Atomic read-modify-write in one transaction (no lost updates between saves and sync). */
+export async function update<T>(store: string, key: IDBValidKey, fn: (cur: T | undefined) => T | undefined): Promise<T | undefined> {
+  const db = await open();
+  const t = db.transaction(store, "readwrite");
+  const os = t.objectStore(store);
+  let out: T | undefined;
+  const r = os.get(key);
+  r.onsuccess = () => { out = fn(r.result as T | undefined); if (out !== undefined) { if (os.keyPath) os.put(out); else os.put(out, key); } };
+  await new Promise<void>((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+  return out;
+}
 export async function del(store: string, key: IDBValidKey): Promise<void> {
   const db = await open();
   await req(db.transaction(store, "readwrite").objectStore(store).delete(key));

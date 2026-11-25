@@ -5,6 +5,8 @@ import { h, syncBadge, themeToggle, fmtDate, addDays } from "./ui";
 import { dawnStage, wordmark } from "./hero";
 import { noteCard } from "./notes";
 import SEGMENTS from "./data/segments.json";
+import { loadStats, streaks, counts, localDay, type DayStat } from "./activity";
+import { columnChart } from "./charts";
 
 export const TOTAL_VERSES = 31086;
 const EMAIL_KEY = "qt-email";
@@ -92,7 +94,66 @@ export async function dashboard(root: HTMLElement, plan: Plan | null) {
     h("p", { class: "tile-title" }, s ? s.translation : "Not imported"),
     h("p", { class: "muted small" }, s ? `${Number(s.verse_count).toLocaleString()} verses, every one checked as you type.` : "Type from your printed Bible for now.")));
 
-  root.replaceChildren(h("div", { class: "dash-wrap" }, stage, h("main", { class: "tiles rise d4" }, overall, notesTile, src)));
+  const rhythm = h("section", { class: "rhythm rise d4", "aria-label": "Your rhythm" });
+  root.replaceChildren(h("div", { class: "dash-wrap" }, stage,
+    h("div", { class: "section-head" }, h("p", { class: "eyebrow" }, "Your rhythm")), rhythm,
+    h("div", { class: "section-head" }, h("p", { class: "eyebrow" }, "Overview")),
+    h("main", { class: "tiles rise d4" }, overall, notesTile, src)));
+  renderRhythm(rhythm, plan.start_date);
+}
+
+const minutes = (s: number) => Math.round(s / 60);
+const fmtMin = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`);
+
+async function renderRhythm(el: HTMLElement, planStart: string) {
+  const today = localDay();
+  const d30 = new Date(); d30.setDate(d30.getDate() - 29);
+  const from30 = localDay(d30);
+  const from = planStart < from30 ? planStart : from30;
+  el.replaceChildren(h("p", { class: "muted small" }, "Gathering your days…"));
+  const rows = await loadStats(from);
+  if (!rows?.length) { el.replaceChildren(h("p", { class: "muted small" }, "Your rhythm appears here once you’re online.")); return; }
+  const last30 = rows.filter((r) => r.day >= from30 && r.day <= today);
+  const t = rows[rows.length - 1];
+  const s = streaks(rows);
+  const sum = (f: (r: DayStat) => number) => rows.reduce((a, r) => a + f(r), 0);
+  const totalMin = minutes(sum((r) => r.typing_seconds + r.notes_seconds));
+  const totalWords = sum((r) => r.words);
+  const activeDays = rows.filter(counts).length;
+
+  const dots = h("div", { class: "streak-dots", "aria-hidden": "true" },
+    ...rows.slice(-14).map((r, i, a) => h("span", { class: counts(r) ? "on" : i === a.length - 1 ? "now" : "" })));
+  const streakTile = h("section", { class: "tile streak" },
+    h("p", { class: "eyebrow" }, "Streak"),
+    h("p", { class: "big-num" }, String(s.current), h("small", {}, s.current === 1 ? " day" : " days")),
+    dots,
+    h("p", { class: "muted small" }, s.todayDone ? "Today is written." : s.current ? "Today keeps it going." : "Begin whenever you’re ready."),
+    h("dl", { class: "totals" },
+      h("div", {}, h("dt", {}, "Longest"), h("dd", {}, `${s.longest} ${s.longest === 1 ? "day" : "days"}`)),
+      h("div", {}, h("dt", {}, "Days in the Word"), h("dd", {}, String(activeDays))),
+      h("div", {}, h("dt", {}, "Time"), h("dd", {}, fmtMin(totalMin))),
+      h("div", {}, h("dt", {}, "Words written"), h("dd", {}, totalWords.toLocaleString()))));
+
+  const time = columnChart({
+    title: "Time in the Word", headline: fmtMin(minutes(t.typing_seconds + t.notes_seconds)),
+    sub: `today · ${fmtMin(minutes(last30.reduce((a, r) => a + r.typing_seconds + r.notes_seconds, 0)))} in 30 days`,
+    points: last30.map((r) => ({ day: r.day, value: minutes(r.typing_seconds + r.notes_seconds),
+      tip: `${fmtMin(minutes(r.typing_seconds))} typing, ${fmtMin(minutes(r.notes_seconds))} notes` })),
+    format: (v) => `${v} min`,
+  });
+  const words = columnChart({
+    title: "Words written", headline: t.words.toLocaleString(),
+    sub: `today · ${t.verses} ${t.verses === 1 ? "verse" : "verses"} checked`,
+    points: last30.map((r) => ({ day: r.day, value: r.words, tip: `${r.words.toLocaleString()} words, ${r.verses} verses` })),
+    format: (v) => v.toLocaleString(),
+  });
+  const notes = columnChart({
+    title: "Notes", headline: String(t.notes),
+    sub: `today · ${last30.reduce((a, r) => a + r.notes, 0)} notes in 30 days`,
+    points: last30.map((r) => ({ day: r.day, value: r.notes, tip: `${r.notes} ${r.notes === 1 ? "note" : "notes"}, ${r.note_words.toLocaleString()} words` })),
+    format: (v) => String(v),
+  });
+  el.replaceChildren(streakTile, time, words, notes);
 }
 
 export function loginPage(root: HTMLElement, onDone: () => void) {

@@ -10,6 +10,7 @@ import { renderWorkspace } from "./workspace";
 import { notesPage, sermonsPage, planPage, settingsPage } from "./pages";
 import { dashboard, loginPage } from "./home";
 import { h } from "./ui";
+import { startActivity } from "./activity";
 
 const root = document.getElementById("app")!;
 document.documentElement.dataset.theme = localStorage.getItem("qt-theme") ??
@@ -39,6 +40,7 @@ async function start() {
   if (started) return;
   started = true;
   await initStore();
+  startActivity();
   plan = await loadPlan();
   pullDocs("notes").catch(() => {});
   pullDocs("sermons").catch(() => {});

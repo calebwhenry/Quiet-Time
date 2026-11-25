@@ -1,13 +1,14 @@
 import { allDocs, newDoc, saveDoc, type DocRec } from "./store";
 import { parseRefs, formatRange, overlaps, BOOK_NAMES, splitId, type Ref } from "./books";
 import { h } from "./ui";
+import { ping } from "./activity";
 
 export const refsText = (refs: Ref[]) => refs.map((r) => formatRange(r.s, r.e)).join("; ");
 
 /** Editor for a note (or sermon when kind = sermons). Autosaves locally, syncs in background. */
 export function docEditor(doc: DocRec, opts: { onClose?: () => void; onChange?: (d: DocRec) => void; compact?: boolean } = {}): HTMLElement {
   let t: number | undefined;
-  const save = () => { clearTimeout(t); t = window.setTimeout(() => { saveDoc(doc); opts.onChange?.(doc); }, 500); };
+  const save = () => { ping("notes"); clearTimeout(t); t = window.setTimeout(() => { saveDoc(doc); opts.onChange?.(doc); }, 500); };
   const title = h("input", { class: "title-input", placeholder: doc.kind === "notes" ? "Title (optional)" : "Sermon title", value: doc.title,
     oninput: () => { doc.title = title.value; save(); } });
   const refIn = h("input", { placeholder: "References, e.g. Gen 1:1-3; John 1:1", value: refsText(doc.refs), spellcheck: false, autocapitalize: "off" });

@@ -169,7 +169,7 @@ export function settingsPage(root: HTMLElement) {
       const local = await getTx(ids);
       for (const t of d.transcriptions) {
         if (have.get(t.verse_id) || local.get(t.verse_id)?.typed) { skipped++; continue; }
-        await saveTx({ verse_id: t.verse_id, typed: t.typed, status: t.status, revision: 0 }); added++;
+        await saveTx(t.verse_id, t.typed, t.status); added++;
       }
       const docsHave = new Set((await idb.getAll<DocRec>("docs")).map((x) => x.id));
       let docs = 0;
