@@ -56,6 +56,13 @@ describe("compare", () => {
   it("tokens keep raw offsets", () => {
     expect(tokenize("Lord's, ok").map((t) => [t.raw, t.start])).toEqual([["Lord's", 0], [",", 6], ["ok", 8]]);
   });
+  it("a misspelled word is paired with the word it replaces", () => {
+    const src = "And the earth was without form, and void; and darkness";
+    const r = compare("And the earth was without from and", src);
+    expect(r.hint).toBe("\u201Cfrom\u201D should be \u201Cform\u201D");
+    expect(r.errors).toEqual([[26, 30]]);
+    expect(r.missing).toEqual([31]);
+  });
   it("trailing space after a partial word makes it an error", () => {
     expect(compare("In the begin ", SRC).errors.length).toBe(1);
   });

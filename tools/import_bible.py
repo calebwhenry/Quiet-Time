@@ -20,8 +20,9 @@ Upload (run on your own computer; the service-role key stays in your shell only)
 """
 import argparse, csv, hashlib, json, os, re, sys, unicodedata, urllib.request, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from books import BOOKS, CODE_TO_ID, NAME, verse_id
+from books import BOOKS, CODE_TO_ID, NAME, NIV_OMITTED, verse_id
 
+OMITTED_IDS = {(CODE_TO_ID[b], c, v) for b, c, v in NIV_OMITTED}
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME_TO_ID = {n.lower().replace(" ", ""): i + 1 for i, (_, n, _) in enumerate(BOOKS)}
 NAME_TO_ID.update({"songofsolomon": 22, "canticles": 22, "psalm": 19, "revelations": 66})
@@ -145,6 +146,8 @@ def main():
             problems["duplicates"].append(f"{NAME[b]} {c}:{v}")
             verses[vid] = (verses[vid] + " " + t).strip()  # merged; reported
             continue
+        if not t and (b, c, v) in OMITTED_IDS:
+            continue  # empty placeholder for a verse number the NIV omits
         if not t:
             problems["empty"].append(f"{NAME[b]} {c}:{v}")
         verses[vid] = t

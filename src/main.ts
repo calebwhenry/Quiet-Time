@@ -1,8 +1,14 @@
+import "@fontsource/instrument-serif/400.css";
+import "@fontsource/instrument-serif/400-italic.css";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/source-serif-4/opsz.css";
+import "@fontsource-variable/source-serif-4/opsz-italic.css";
 import "./style.css";
 import { sb, configured } from "./supabase";
 import { initStore, loadPlan, pullDocs, type Plan } from "./store";
 import { renderWorkspace } from "./workspace";
-import { dashboard, notesPage, sermonsPage, planPage, settingsPage, loginPage, newPasswordPage } from "./pages";
+import { notesPage, sermonsPage, planPage, settingsPage } from "./pages";
+import { dashboard, loginPage } from "./home";
 import { h } from "./ui";
 
 const root = document.getElementById("app")!;
@@ -46,8 +52,7 @@ async function boot() {
     return;
   }
   sb.auth.onAuthStateChange((event, session) => {
-    if (event === "PASSWORD_RECOVERY") newPasswordPage(root, () => { location.hash = "#/"; start(); });
-    else if (event === "SIGNED_OUT") { started = false; }
+    if (event === "SIGNED_OUT") { started = false; }
     else if (session && !started && event === "SIGNED_IN") start();
   });
   const { data } = await sb.auth.getSession();

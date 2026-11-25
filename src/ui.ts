@@ -33,7 +33,8 @@ export function syncBadge(): HTMLElement {
 }
 
 export function themeToggle(): HTMLElement {
-  const b = h("button", { class: "ghost icon", title: "Light / dark", "aria-label": "Toggle light or dark theme" }, "◐");
+  const b = h("button", { class: "icon-btn", title: "Light / dark", "aria-label": "Toggle light or dark theme" });
+  b.innerHTML = `<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M15.5 12.6A6.5 6.5 0 0 1 7.4 4.5a6.5 6.5 0 1 0 8.1 8.1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
   b.addEventListener("click", () => {
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;

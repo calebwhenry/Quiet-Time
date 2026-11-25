@@ -3,6 +3,7 @@ import { verseIdsInRange, splitId, BOOK_NAMES, formatId, type Ref } from "./book
 import { getTx, saveTx, pullTx, getVerses, setProgress, resolveConflict, type Plan, type TxRec, type Verse } from "./store";
 import { h, esc, syncBadge, themeToggle, fmtDate, addDays } from "./ui";
 import { notesPanel } from "./notes";
+import { wordmark } from "./hero";
 
 interface VerseCtl {
   id: number;
@@ -45,11 +46,11 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
   let sideTab: 0 | 2 = 0; // medium layout: which side panel shows next to transcription
 
   const progressEl = h("span", { class: "day-progress" });
-  const header = h("header", { class: "topbar" },
-    h("a", { href: "#/", class: "ghost", title: "Home" }, "← Home"),
+  const header = h("header", { class: "topbar ws-top" },
+    wordmark("#/"),
     h("div", { class: "day-title" },
-      h("strong", {}, `Day ${day}`), h("span", { class: "muted" }, ` · ${fmtDate(date)}`),
-      h("div", { class: "muted small" }, passages.map((p) => p.label).join(" · "))),
+      h("strong", {}, `Day ${day}`), h("span", { class: "muted small" }, ` · ${fmtDate(date)}`),
+      h("div", { class: "muted small" }, passages.map((p) => p.label.replace(/(\d)-(\d)/g, "$1\u2013$2")).join(" · "))),
     progressEl,
     h("nav", { class: "row" },
       day > 1 ? h("a", { href: `#/day/${day - 1}`, class: "ghost", title: "Previous day" }, "‹") : null,
@@ -150,8 +151,8 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
 
   passages.forEach((p, pi) => {
     const { ids, verses, tx } = passageData[pi];
-    txPanel.append(h("h2", { class: "passage-title" }, p.label));
-    const refSection = h("div", { class: "ref-passage" }, h("h2", { class: "passage-title" }, p.label));
+    txPanel.append(h("h2", { class: "passage-title" }, p.label.replace(/(\d)-(\d)/g, "$1\u2013$2")));
+    const refSection = h("div", { class: "ref-passage" }, h("h2", { class: "passage-title" }, p.label.replace(/(\d)-(\d)/g, "$1\u2013$2")));
     refScroll.append(refSection);
     let lastChap = -1;
     let refPara: HTMLElement | null = null;
@@ -181,7 +182,7 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
       txPanel.append(row);
       let refEl: HTMLElement | undefined;
       if (source && refPara) {
-        refEl = h("span", { class: "ref-v", "data-id": String(id) }, h("sup", {}, String(v)), " ", source.text, " ");
+        refEl = h("span", { class: "ref-v", "data-id": String(id) }, h("sup", {}, String(v)), " ", source.text.replace(/--/g, "\u2014"), " ");
         refEl.addEventListener("click", () => { ta.focus(); });
         refPara.append(refEl);
       }

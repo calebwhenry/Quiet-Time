@@ -71,6 +71,8 @@ function align(a: Token[], b: Token[]): Op[] {
   let i = 0, j = 0;
   while (i < n || j < m) {
     if (i < n && j < m && a[i].norm === b[j].norm) { ops.push({ k: "eq", t: i++, s: j++ }); }
+    // Prefer pairing a wrong word with the word it replaced, so later matches stay local.
+    else if (i < n && j < m && L[(i + 1) * w + j + 1] === L[i * w + j]) { ops.push({ k: "del", s: j++ }); ops.push({ k: "add", t: i++ }); }
     else if (j < m && (i >= n || L[i * w + j + 1] >= L[(i + 1) * w + j])) { ops.push({ k: "del", s: j++ }); }
     else { ops.push({ k: "add", t: i++ }); }
   }

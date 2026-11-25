@@ -1,67 +1,13 @@
 import { sb } from "./supabase";
-import { allDocs, newDoc, countComplete, getProgress, getTx, sourceInfo, todayDay, flush, saveTx, saveDoc, type Plan, type DocRec, type TxRec } from "./store";
+import { allDocs, newDoc, getTx, todayDay, flush, saveTx, saveDoc, type Plan, type DocRec, type TxRec } from "./store";
 import * as idb from "./idb";
 import { verseIdsInRange, parseRefs, BOOK_NAMES, splitId, formatRange } from "./books";
-import { h, syncBadge, themeToggle, fmtDate, addDays } from "./ui";
+import { h, fmtDate, addDays } from "./ui";
+import { shell, securityCard } from "./home";
 import SEGMENTS from "./data/segments.json";
 import { docEditor, noteCard, searchNotes, bookOptions, refsText } from "./notes";
 
-const TOTAL_VERSES = 31086;
 
-function shell(root: HTMLElement, title: string, ...content: (Node | null)[]) {
-  root.replaceChildren(
-    h("header", { class: "topbar" },
-      h("a", { href: "#/", class: "brand" }, "Quiet Time"),
-      h("nav", { class: "row links" },
-        h("a", { href: "#/notes" }, "Notes"), h("a", { href: "#/sermons" }, "Sermons"),
-        h("a", { href: "#/plan" }, "Plan"), h("a", { href: "#/settings" }, "Backup")),
-      h("div", { class: "row" }, syncBadge(), themeToggle())),
-    h("main", { class: "page" }, title ? h("h1", {}, title) : null, ...content));
-}
-
-export async function dashboard(root: HTMLElement, plan: Plan | null) {
-  if (!plan) {
-    shell(root, "Quiet Time", h("p", {}, "The reading plan hasn’t been loaded into the database yet."));
-    return;
-  }
-  const today = todayDay(plan);
-  const day = Math.min(Math.max(today, 1), plan.days.length);
-  const passages = plan.days[day - 1];
-  const ids = passages.flatMap((p) => verseIdsInRange(p.start_id, p.end_id));
-  const tx = await getTx(ids);
-  const doneToday = ids.filter((id) => ["complete", "unverified"].includes(tx.get(id)?.status ?? "")).length;
-  const prog = await getProgress();
-
-  const todayCard = h("section", { class: "card hero" },
-    h("div", { class: "muted" }, today < 1 ? `Begins ${fmtDate(plan.start_date)}` : fmtDate(addDays(plan.start_date, day - 1))),
-    h("h2", {}, `Day ${day} of ${plan.days.length}`),
-    h("ul", { class: "passages" }, ...passages.map((p) => h("li", {}, p.label))),
-    h("div", { class: "bar", "aria-label": `${doneToday} of ${ids.length} verses` }, h("span", { style: `width:${(100 * doneToday) / ids.length}%` })),
-    h("div", { class: "muted small" }, `${doneToday} of ${ids.length} verses`),
-    h("div", { class: "row" },
-      h("a", { class: "button primary", href: `#/day/${day}` }, doneToday ? "Continue" : today < 1 ? "Open Day 1" : "Begin"),
-      prog.current_day && prog.current_day !== day ? h("a", { class: "button", href: `#/day/${prog.current_day}?v=${prog.verse_id ?? ""}` }, `Resume Day ${prog.current_day}`) : null));
-
-  const overall = h("section", { class: "card" }, h("h3", {}, "Whole Bible"), h("p", { class: "muted" }, "Counting…"));
-  countComplete().then((n) => {
-    overall.replaceChildren(h("h3", {}, "Whole Bible"),
-      h("div", { class: "bar" }, h("span", { style: `width:${(100 * (n ?? 0)) / TOTAL_VERSES}%` })),
-      h("p", { class: "muted small" }, n == null ? "Offline" : `${n.toLocaleString()} of ${TOTAL_VERSES.toLocaleString()} verses transcribed and checked`));
-  });
-
-  const src = h("section", { class: "card" }, h("h3", {}, "Source text"), h("p", { class: "muted small" }, "Checking…"));
-  sourceInfo().then((s) => src.replaceChildren(h("h3", {}, "Source text"),
-    h("p", { class: "small" }, s ? `${s.translation}${s.edition ? " · " + s.edition : ""} · ${s.verse_count?.toLocaleString()} verses` :
-      "NIV 1984 not imported yet: transcription works from your printed Bible and is checked once the text is imported.")));
-
-  const q = h("input", { type: "search", placeholder: "Search notes by word, tag, or reference…", class: "search" });
-  const searchForm = h("form", { class: "card", onsubmit: (e: Event) => { e.preventDefault(); location.hash = `#/notes?q=${encodeURIComponent(q.value)}`; } },
-    h("h3", {}, "Notes"), q);
-  const recent = (await allDocs("notes")).sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 4);
-  if (recent.length) searchForm.append(h("div", { class: "note-list" }, ...recent.map((n) => noteCard(n, () => (location.hash = `#/notes?id=${n.id}`)))));
-
-  shell(root, "", h("div", { class: "dash" }, todayCard, h("div", { class: "stack" }, overall, searchForm, src)));
-}
 
 export async function notesPage(root: HTMLElement, params: URLSearchParams) {
   const text = h("input", { type: "search", placeholder: "Words…", value: params.get("q") ?? "" });
@@ -238,7 +184,7 @@ export function settingsPage(root: HTMLElement) {
     } catch (e: any) { status.textContent = "Restore failed: " + e.message; }
   };
 
-  shell(root, "Backup & settings",
+  shell(root, "Settings",
     h("section", { class: "card" }, h("h3", {}, "Export"),
       h("p", { class: "small" }, "Download everything you have written: your transcription in canonical order, notes and sermons. Keep a copy somewhere other than this app."),
       h("div", { class: "row" }, h("button", { class: "primary", onclick: exportJson }, "Full backup (JSON)"), h("button", { onclick: exportMd }, "Readable copy (Markdown)"))),
@@ -251,41 +197,9 @@ export function settingsPage(root: HTMLElement) {
         h("li", {}, "Enter: next verse · Shift-Enter: line break (poetry)"),
         h("li", {}, "Backspace at the start of a verse: previous verse"),
         h("li", {}, "Option-E: jump to the first error · Option-N: new note · Option-T or Esc: back to typing"))),
+    securityCard(),
     h("section", { class: "card" }, h("h3", {}, "Account"),
       h("button", { onclick: async () => { await flush(); await sb.auth.signOut(); location.hash = "#/"; location.reload(); } }, "Sign out")));
-}
-
-export function loginPage(root: HTMLElement, onDone: () => void) {
-  const email = h("input", { type: "email", placeholder: "Email", autocomplete: "username", required: true });
-  const pw = h("input", { type: "password", placeholder: "Password", autocomplete: "current-password", required: true, minLength: 8 });
-  const msg = h("p", { class: "muted small", role: "status" });
-  const go = async (mode: "in" | "up" | "reset") => {
-    msg.textContent = "…";
-    const redirect = location.origin + location.pathname;
-    const { error } = mode === "in" ? await sb.auth.signInWithPassword({ email: email.value, password: pw.value })
-      : mode === "up" ? await sb.auth.signUp({ email: email.value, password: pw.value, options: { emailRedirectTo: redirect } })
-      : await sb.auth.resetPasswordForEmail(email.value, { redirectTo: redirect });
-    if (error) { msg.textContent = /Database error|closed/i.test(error.message) ? "This app is private; that email isn’t allowed." : error.message; return; }
-    if (mode === "in") onDone();
-    else msg.textContent = mode === "up" ? "Check your email to confirm the account, then sign in here." : "Check your email for a reset link.";
-  };
-  root.replaceChildren(h("main", { class: "login" },
-    h("h1", {}, "Quiet Time"),
-    h("p", { class: "muted" }, "“He is to read it all the days of his life.” Deuteronomy 17:19"),
-    h("form", { onsubmit: (e: Event) => { e.preventDefault(); go("in"); } }, email, pw,
-      h("button", { class: "primary", type: "submit" }, "Sign in"),
-      h("div", { class: "row" },
-        h("button", { type: "button", class: "ghost small", onclick: () => go("up") }, "First time: create account"),
-        h("button", { type: "button", class: "ghost small", onclick: () => go("reset") }, "Forgot password"))),
-    msg));
-}
-
-export function newPasswordPage(root: HTMLElement, onDone: () => void) {
-  const pw = h("input", { type: "password", placeholder: "New password", autocomplete: "new-password", minLength: 8 });
-  const msg = h("p", { class: "muted small" });
-  root.replaceChildren(h("main", { class: "login" }, h("h1", {}, "Set a new password"),
-    h("form", { onsubmit: async (e: Event) => { e.preventDefault(); const { error } = await sb.auth.updateUser({ password: pw.value }); if (error) msg.textContent = error.message; else onDone(); } },
-      pw, h("button", { class: "primary", type: "submit" }, "Save")), msg));
 }
 
 export { formatRange };

@@ -37,7 +37,16 @@ npm test
 python3 -I tools/validate_plan.py plan/plan.json plan/inventory.json
 ```
 
-## Importing the NIV 1984 text (run on your own computer)
+## Signing in
+- One account (the allowlisted email). Accounts on the allowlist are confirmed instantly; no confirmation email.
+- **Forgot password:** use the recovery code (Settings → Password & recovery → New recovery code). The sign-in
+  screen's "Forgot your password?" resets it through the `recover-password` Edge Function, with no email involved. 5 wrong
+  codes lock it for 15 minutes.
+
+## NIV 1984 text
+Imported on 2026-11-25; see `supabase/seed/README.md` for provenance and checksum.
+
+## Importing a Bible text (run on your own computer)
 1. Put the authorized file outside the repo (e.g. `~/bible-data/niv1984.xml`). Supported: CSV/TSV, JSON, Zefania XML, OSIS XML.
 2. Dry run (prints counts, gaps, duplicates, edition markers and a checksum, never verse text):
    `python3 -I tools/import_bible.py ~/bible-data/niv1984.xml --translation "NIV 1984" --show 45012001 50004013`
