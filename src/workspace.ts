@@ -245,6 +245,9 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
     ta.addEventListener("beforeinput", (e) => {
       // Never let the browser insert or replace Scripture for the user.
       if (["insertFromPaste", "insertFromDrop", "insertReplacementText", "insertFromYank", "insertTranspose"].includes(e.inputType)) e.preventDefault();
+      // A space typed at the very start of a verse (the habit of spacing between sentences) is dropped,
+      // so every verse starts the same way. It's never required.
+      else if (e.inputType === "insertText" && e.data && /^\s+$/.test(e.data) && ta.selectionStart === 0 && ta.selectionEnd === 0) e.preventDefault();
     });
     ta.addEventListener("paste", (e) => e.preventDefault());
     ta.addEventListener("drop", (e) => e.preventDefault());
@@ -257,6 +260,13 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
 
   function onInput(c: VerseCtl) {
     ping("typing");
+    // Fallback for keyboards that bypass beforeinput: strip leading whitespace, keep the caret in place.
+    const lead = c.ta.value.match(/^\s+/)?.[0].length ?? 0;
+    if (lead) {
+      const pos = Math.max(0, c.ta.selectionStart - lead), end = Math.max(0, c.ta.selectionEnd - lead);
+      c.ta.value = c.ta.value.slice(lead);
+      c.ta.setSelectionRange(pos, end);
+    }
     autosize(c.ta);
     const justCompleted = evaluate(c, true);
     updateProgress();
@@ -265,7 +275,19 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
       if (next) { next.ta.focus(); next.ta.setSelectionRange(next.ta.value.length, next.ta.value.length); }
       else celebrate();
     }
+    if (active === c) scrollTxToCaret(c);
     setProgress({ plan_id: plan.id, current_day: day, verse_id: c.id, caret: c.ta.selectionStart });
+  }
+
+  // Keep the line you're typing near the middle of the writing column, like the Scripture column.
+  function scrollTxToCaret(c: VerseCtl) {
+    if (txPanel.hidden || txPanel.scrollHeight <= txPanel.clientHeight) return;
+    const box = txPanel.getBoundingClientRect(), r = c.ta.getBoundingClientRect();
+    const len = c.ta.value.length;
+    const lineH = parseFloat(getComputedStyle(c.ta).lineHeight) || 30;
+    const caretY = r.top + Math.min(r.height - lineH / 2, Math.max(lineH / 2, len ? (c.ta.selectionStart / len) * r.height : lineH / 2));
+    const rel = (caretY - box.top) / box.height;
+    if (rel < 0.3 || rel > 0.55) txPanel.scrollTo({ top: txPanel.scrollTop + caretY - box.top - box.height * 0.42, behavior: "smooth" });
   }
 
   function onKey(c: VerseCtl, e: KeyboardEvent) {
@@ -294,6 +316,7 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
     c.refEl?.classList.add("active");
     notes.setVerse(c.id);
     scrollRefToActive(false);
+    requestAnimationFrame(() => scrollTxToCaret(c));
     setProgress({ plan_id: plan.id, current_day: day, verse_id: c.id, caret: c.ta.selectionStart });
   }
 
