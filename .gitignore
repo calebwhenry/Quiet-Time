@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+# Bible source files, local dumps and personal exports never go in git
+data/
+*.sqlite
+*.db
+quiet-time-backup-*.json
+import/*.csv
+__pycache__/
