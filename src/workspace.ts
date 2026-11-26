@@ -1,7 +1,7 @@
 import { compare } from "./compare";
 import { verseIdsInRange, splitId, BOOK_NAMES, formatId, type Ref } from "./books";
 import { getTx, saveTx, pullTx, getVerses, setProgress, resolveConflict, type Plan, type TxRec, type Verse } from "./store";
-import { h, esc, syncBadge, themeToggle, fmtDate, addDays } from "./ui";
+import { h, esc, syncBadge, themeToggle, fmtDate, addDays, armDeadKeyGuard, stripDeadKey } from "./ui";
 import { notesPanel } from "./notes";
 import { wordmark } from "./hero";
 import { ping } from "./activity";
@@ -253,7 +253,7 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
     ta.addEventListener("drop", (e) => e.preventDefault());
     ta.addEventListener("compositionstart", () => (c.composing = true));
     ta.addEventListener("compositionend", () => { c.composing = false; onInput(c); });
-    ta.addEventListener("input", () => { if (!c.composing) onInput(c); else autosize(ta); });
+    ta.addEventListener("input", (e) => { stripDeadKey(ta, e); if (!c.composing) onInput(c); else autosize(ta); });
     ta.addEventListener("focus", () => setActive(c));
     ta.addEventListener("keydown", (e) => onKey(c, e));
   }
@@ -358,6 +358,7 @@ export async function renderWorkspace(root: HTMLElement, plan: Plan, day: number
 
   const keyHandler = (e: KeyboardEvent) => {
     if (!root.isConnected) return;
+    if (e.altKey && ["KeyN", "KeyE", "KeyT"].includes(e.code)) armDeadKeyGuard();
     if (e.altKey && e.code === "KeyN") { e.preventDefault(); if (grid.dataset.mode !== "wide") { sideTab = 2; mobileTab = 2; applyLayout(); } notes.newNote(); }
     else if (e.altKey && e.code === "KeyE") {
       e.preventDefault();

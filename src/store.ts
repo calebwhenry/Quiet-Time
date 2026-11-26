@@ -138,9 +138,10 @@ export async function resolveConflict(verse_id: number, keep: "mine" | "cloud") 
 export async function allDocs(kind: "notes" | "sermons"): Promise<DocRec[]> {
   return (await idb.getAll<DocRec>("docs")).filter((d) => d.kind === kind && !d.deleted);
 }
+/** Save a note/sermon locally. The revision is owned by the sync layer, never by the editor's copy. */
 export async function saveDoc(d: DocRec) {
   d.updated_at = new Date().toISOString();
-  await idb.put("docs", d);
+  await idb.update<DocRec>("docs", d.id, (cur) => ({ ...d, revision: cur ? cur.revision : d.revision }));
   await markDirty(`doc:${d.id}`);
   emit("pending");
   flushSoon();
@@ -169,8 +170,16 @@ export async function pullDocs(kind: "notes" | "sermons") {
       const local = await idb.get<DocRec>("docs", r.id);
       const isDirty = dirty.has(`doc:${r.id}`);
       if (isDirty && local && r.revision > local.revision) {
-        await keepConflictCopy(local);
-        await clearDirty(`doc:${r.id}`);
+        if (r.deleted_at) {
+          await clearDirty(`doc:${r.id}`); // a deletion elsewhere wins
+        } else if (isStaleDraft(r.title, local.title) && isStaleDraft(r.body, local.body)) {
+          // The cloud has an earlier draft of what's here: keep ours, just catch up the revision.
+          await idb.update<DocRec>("docs", r.id, (cur) => cur && { ...cur, revision: r.revision });
+          continue;
+        } else {
+          await keepConflictCopy(local);
+          await clearDirty(`doc:${r.id}`);
+        }
       }
       if (!isDirty || (local && r.revision > local.revision)) await idb.put("docs", rowToDoc(kind, r));
       if (r.updated_at > maxTs) maxTs = r.updated_at;
@@ -189,9 +198,14 @@ async function keepConflictCopy(local: DocRec) {
 // ---------- Flush ----------
 let timer: number | undefined;
 let flushing = false;
+let pendingSince = 0;
+/** Debounced cloud save, but never postponed more than ~8s while you keep typing. */
 export function flushSoon(ms = 2500) {
+  const now = Date.now();
+  if (!pendingSince) pendingSince = now;
+  const wait = Math.max(0, Math.min(ms, pendingSince + 8000 - now));
   clearTimeout(timer);
-  timer = window.setTimeout(flush, ms);
+  timer = window.setTimeout(() => { pendingSince = 0; flush(); }, wait);
 }
 
 export async function flush(): Promise<void> {
@@ -241,11 +255,19 @@ export async function flush(): Promise<void> {
       if (d.kind === "notes") payload.tags = d.tags; else payload.note_ids = d.note_ids;
       const { data, error } = await sb.rpc("save_doc", { p_table: d.kind, p: payload });
       if (error) throw error;
-      const cur = (await idb.get<DocRec>("docs", d.id))!;
       if ((data as any).ok) {
-        cur.revision = (data as any).revision;
-        await idb.put("docs", cur);
-        if (cur.updated_at === d.updated_at) await clearDirty(k);
+        const cur = await idb.update<DocRec>("docs", d.id, (cur) => cur && { ...cur, revision: (data as any).revision });
+        if (cur && cur.updated_at === d.updated_at) await clearDirty(k);
+        continue;
+      }
+      const { data: srv } = await sb.from(d.kind).select("title,body,revision,deleted_at").eq("id", d.id).maybeSingle();
+      const cur = (await idb.get<DocRec>("docs", d.id))!;
+      if (srv && !srv.deleted_at && isStaleDraft(srv.title, cur.title) && isStaleDraft(srv.body, cur.body)) {
+        // Not a real conflict: the cloud only has an earlier draft of this same note. Catch up and resend.
+        await idb.update<DocRec>("docs", d.id, (c) => c && { ...c, revision: srv.revision });
+        flushSoon(200);
+      } else if (srv?.deleted_at) {
+        await clearDirty(k);
       } else {
         // Someone (another device) saved a newer revision: keep ours as a copy, take theirs.
         await keepConflictCopy(cur);

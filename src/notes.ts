@@ -1,6 +1,6 @@
 import { allDocs, newDoc, saveDoc, type DocRec } from "./store";
 import { parseRefs, formatRange, overlaps, BOOK_NAMES, splitId, type Ref } from "./books";
-import { h } from "./ui";
+import { h, stripDeadKey } from "./ui";
 import { ping } from "./activity";
 
 export const refsText = (refs: Ref[]) => refs.map((r) => formatRange(r.s, r.e)).join("; ");
@@ -10,7 +10,7 @@ export function docEditor(doc: DocRec, opts: { onClose?: () => void; onChange?: 
   let t: number | undefined;
   const save = () => { ping("notes"); clearTimeout(t); t = window.setTimeout(() => { saveDoc(doc); opts.onChange?.(doc); }, 500); };
   const title = h("input", { class: "title-input", placeholder: doc.kind === "notes" ? "Title (optional)" : "Sermon title", value: doc.title,
-    oninput: () => { doc.title = title.value; save(); } });
+    oninput: (e: Event) => { stripDeadKey(title, e); doc.title = title.value; save(); } });
   const refIn = h("input", { placeholder: "References, e.g. Gen 1:1-3; John 1:1", value: refsText(doc.refs), spellcheck: false, autocapitalize: "off" });
   const refMsg = h("small", { class: "muted" });
   refIn.addEventListener("input", () => {
@@ -22,7 +22,7 @@ export function docEditor(doc: DocRec, opts: { onClose?: () => void; onChange?: 
   const tagIn = h("input", { placeholder: "Tags, comma separated (faith, covenant)", value: doc.tags.join(", "), autocapitalize: "off",
     oninput: () => { doc.tags = tagIn.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean); save(); } });
   const body = h("textarea", { class: "body-input", placeholder: doc.kind === "notes" ? "Reflections, observations, questions, cross-references…" : "Write your sermon…",
-    oninput: () => { doc.body = body.value; save(); } });
+    oninput: (e: Event) => { stripDeadKey(body, e); doc.body = body.value; save(); } });
   body.value = doc.body;
   const del = h("button", { class: "ghost danger", onclick: () => {
     if (!confirm("Delete this " + (doc.kind === "notes" ? "note" : "sermon") + "?")) return;

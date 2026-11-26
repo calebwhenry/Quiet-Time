@@ -50,3 +50,19 @@ export function addDays(iso: string, n: number) {
   const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+// On a Mac, Option-N / Option-E are dead keys (˜ ´): Safari can still type the accent into
+// whatever field gains focus right after a shortcut. Arm a short guard and undo that stray mark.
+let deadUntil = 0;
+export const armDeadKeyGuard = () => { deadUntil = Date.now() + 1200; };
+const DEAD = /^[\u02DC\u00B4\u00A8\u02C6`~\u02CB]$/;
+export function stripDeadKey(el: HTMLTextAreaElement | HTMLInputElement, e: Event): boolean {
+  const data = (e as InputEvent).data;
+  if (Date.now() > deadUntil || !data || !DEAD.test(data)) return false;
+  const pos = el.selectionStart ?? el.value.length;
+  if (el.value[pos - 1] !== data) return false;
+  el.value = el.value.slice(0, pos - 1) + el.value.slice(pos);
+  el.setSelectionRange(pos - 1, pos - 1);
+  deadUntil = 0;
+  return true;
+}
